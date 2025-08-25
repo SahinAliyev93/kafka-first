@@ -1,10 +1,15 @@
 package com.basickafka.kafkafirst.config;
 
 
+import com.basickafka.kafkafirst.exception.NotRetryableException;
+import com.basickafka.kafkafirst.exception.RetryableException;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.boot.autoconfigure.kafka.ConcurrentKafkaListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.KafkaListenerErrorHandler;
 import org.springframework.util.backoff.ExponentialBackOff;
@@ -49,19 +54,33 @@ public class KafkaConfig {
     public KafkaListenerErrorHandler errorHandler(){
         return (message,exception) -> {
             System.out.println("Error Handler caught exception: " + message);
-           throw  new RuntimeException("Simulated processing error in error handler");
+           throw  exception;
             //return "FAILED";
         };
     }
 
     @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactoryConfigurer(
+            ConsumerFactory<String,String> consumerFactory,
+            DefaultErrorHandler defaultErrorHandler)
+    {
+        var factory = new ConcurrentKafkaListenerContainerFactory<String,String>();
+        factory.setConsumerFactory(consumerFactory);
+        factory.setCommonErrorHandler(defaultErrorHandler);
+        factory.getContainerProperties().setDeliveryAttemptHeader(true);
+        return factory;
+    }
+
+   @Bean
     public DefaultErrorHandler defaultErrorHandler(){
         var defaultErrorHandler = new DefaultErrorHandler(
                 (consumerRecord, e) -> {
                     System.out.println("Default Error Handler caught exception: " + e.getMessage() + " for record: " + consumerRecord);
-                },new FixedBackOff(1000L, 2));
+                },new FixedBackOff(1000L, 3));
 
         defaultErrorHandler.setAckAfterHandle(false);
+        defaultErrorHandler.addNotRetryableExceptions(NotRetryableException.class);
+        defaultErrorHandler.addRetryableExceptions(RetryableException.class);
         return defaultErrorHandler;
     }
 }
